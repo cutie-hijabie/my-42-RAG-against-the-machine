@@ -1,4 +1,5 @@
 from uuid import uuid4
+from math import isclose
 from typing import List, Dict
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -157,3 +158,38 @@ class IndexData(BaseModel):
                 "average_document_length must match the mean "
                 "of document_lengths."
             )
+
+        file_paths = {file.file_path for file in self.files}
+
+        if len(file_paths) != len(self.files):
+            raise ValueError(
+                "Index file metadata must contain unique file paths."
+            )
+
+        for passage in self.passages:
+            if passage.file_path not in file_paths:
+                raise ValueError(
+                    "Every passage must reference a file listed "
+                    "in index metadata."
+                )
+
+            start = passage.first_character_index
+            end = passage.last_character_index
+
+            if start < 0 or end <= start:
+                raise ValueError(
+                    "Passage ranges must satisfy 0 <= start < end."
+                )
+
+            if len(passage.text) != end - start:
+                raise ValueError(
+                    "Passage text length must equal last_character_index "
+                    "minus first_character_index."
+                )
+
+            if len(passage.text) > self.settings.max_chunk_size:
+                raise ValueError(
+                    "Passage length must not exceed settings.max_chunk_size."
+                )
+
+        return self
