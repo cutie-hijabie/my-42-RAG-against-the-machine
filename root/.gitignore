@@ -1,0 +1,56 @@
+# Corpus, datasets, generated indexes and outputs
+/data/
+
+# Local development tests
+/tests/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python artifacts and tool caches
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.pytype/
+.hypothesis/
+
+# Coverage reports
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Model weights and caches
+/models/
+/weights/
+/model_cache/
+.cache/
+.huggingface/
+*.safetensors
+*.gguf
+pytorch_model*.bin
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Editor and operating-system files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+._*
+Thumbs.db
