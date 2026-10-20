@@ -6,8 +6,15 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 class MinimalSource(BaseModel):
     file_path: str
-    first_character_index: int
-    last_character_index: int
+    first_character_index: int = Field(ge=0, strict=True)
+    last_character_index: int = Field(gt=0, strict=True)
+
+    @model_validator(mode="after")
+    def validate_source_range(self) -> "MinimalSource":
+        if self.last_character_index <= self.first_character_index:
+            raise ValueError("Source ranges must satisfy 0 <= start < end.")
+
+        return self
 
 
 class UnansweredQuestion(BaseModel):
@@ -191,5 +198,109 @@ class IndexData(BaseModel):
                 raise ValueError(
                     "Passage length must not exceed settings.max_chunk_size."
                 )
+
+        return self
+
+
+class PreparedContext(BaseModel):
+    prompt_text: str
+    included_sources: List[MinimalSource]
+    input_token_count: int = Field(ge=0, strict=True)
+    has_evidence: bool = Field(strict=True)
+
+    @model_validator(mode="after")
+    def validate_evidence_consistency(self) -> "PreparedContext":
+        if self.has_evidence != bool(self.included_sources):
+            raise ValueError(
+                "has_evidence must match whether included_sources is nonempty."
+            )
+        return self
+
+
+class QuestionRecall(BaseModel):
+    question_id: str
+    found_sources: int = Field(ge=0, strict=True)
+    expected_sources: int = Field(ge=0, strict=True)
+    recall: float = Field(ge=0, le=1, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def validate_recall_consistency(self) -> "QuestionRecall":
+        if self.found_sources > self.expected_sources:
+            raise ValueError("found_sources must not exceed expected_sources.")
+
+        if self.expected_sources > 0:
+            expected_recall = self.found_sources / self.expected_sources
+        else:
+            expected_recall = 0.0
+
+        if not isclose(
+            self.recall,
+            expected_recall,
+            rel_tol=1e-9,
+            abs_tol=1e-12,
+        ):
+            raise ValueError(
+                "recall must match found_sources / expected_sources, "
+                "or be zero when expected_sources is zero."
+            )
+
+        return self
+
+
+class EvaluationReport(BaseModel):
+    k: int = Field(ge=0, strict=True)
+    question_scores: List[QuestionRecall]
+    mean_recall: float = Field(ge=0, le=1, allow_inf_nan=False)
+    missing_question_ids: List[str]
+    skipped_question_ids: List[str]
+
+    @model_validator(mode="after")
+    def validate_report_consistency(self) -> "EvaluationReport":
+        question_ids = [score.question_id for score in self.question_scores]
+
+        if len(question_ids) != len(set(question_ids)):
+            raise ValueError(
+                "question_scores must contain unique question IDs."
+            )
+
+        if len(self.missing_question_ids) != len(
+            set(self.missing_question_ids)
+        ):
+            raise ValueError(
+                "missing_question_ids must not contain duplicates."
+            )
+
+        if len(self.skipped_question_ids) != len(
+            set(self.skipped_question_ids)
+        ):
+            raise ValueError(
+                "skipped_question_ids must not contain duplicates."
+            )
+
+        evaluable_scores = [
+            score
+            for score in self.question_scores
+            if score.expected_sources > 0
+        ]
+
+        if not evaluable_scores:
+            raise ValueError(
+                "Evaluation report must contain at least one evaluable question."
+            )
+
+        expected_mean = sum(score.recall for score in evaluable_scores) / len(
+            evaluable_scores
+        )
+
+        if not isclose(
+            self.mean_recall,
+            expected_mean,
+            rel_tol=1e-9,
+            abs_tol=1e-12,
+        ):
+            raise ValueError(
+                "mean_recall must match the mean recall "
+                "of evaluable questions."
+            )
 
         return self
