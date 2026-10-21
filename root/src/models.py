@@ -1,6 +1,7 @@
 from uuid import uuid4
 from math import isclose
-from typing import List, Dict
+from typing import List, Dict, Annotated
+from .validation import validate_k, validate_chunk_size
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
@@ -45,10 +46,20 @@ class StudentSearchResults(BaseModel):
     search_results: List[MinimalSearchResults]
     k: int
 
+    @field_validator("k", mode="before")
+    @classmethod
+    def validate_result_k(cls, value: int) -> int:
+        return validate_k(value)
+
 
 class StudentSearchResultsAndAnswer(BaseModel):
     search_results: List[MinimalAnswer]
     k: int
+
+    @field_validator("k", mode="before")
+    @classmethod
+    def validate_result_k(cls, value: int) -> int:
+        return validate_k(value)
 
 
 class SourceFile(BaseModel):
@@ -59,9 +70,19 @@ class SourceFile(BaseModel):
 class Passage(MinimalSource):
     text: str
 
+    @model_validator(mode="after")
+    def validate_text_length(self) -> "Passage":
+        space_btween = self.last_character_index - self.first_character_index
+        if space_btween != len(self.text):
+            raise ValueError(
+                "Passage text length must equal last_character_index "
+                "minus first_character_index."
+            )
+        return self
+
 
 class IndexSettings(BaseModel):
-    max_chunk_size: int = Field(default=2000, ge=1, le=2000, strict=True)
+    max_chunk_size: int = 2000
     overlap: int = Field(default=150, ge=0, strict=True)
     k1: float = Field(default=1.5, gt=0, allow_inf_nan=False, strict=True)
     b: float = Field(
@@ -84,11 +105,16 @@ class IndexSettings(BaseModel):
 
         return self
 
+    @field_validator("max_chunk_size", mode="before")
+    @classmethod
+    def validate_settings_chunk_size(cls, value: int) -> int:
+        return validate_chunk_size(value)
+
 
 class CorpusFileState(BaseModel):
     file_path: str
     size_bytes: int = Field(ge=0, strict=True)
-    mtime_ns: int = Field(strict=True)
+    mtime_ns: int = Field(ge=0, strict=True)
 
 
 class Posting(BaseModel):
@@ -103,7 +129,7 @@ class IndexData(BaseModel):
     files: List[CorpusFileState]
     passages: List[Passage]
     postings: Dict[str, List[Posting]]
-    document_lengths: List[int]
+    document_lengths: List[Annotated[int, Field(ge=0, strict=True)]]
     average_document_length: float = Field(gt=0, allow_inf_nan=False)
 
     @model_validator(mode="after")
@@ -120,9 +146,6 @@ class IndexData(BaseModel):
             raise ValueError(
                 "document_lengths must contain exactly one entry per passage."
             )
-
-        if any(length < 0 for length in self.document_lengths):
-            raise ValueError("Document lengths must be nonnegative.")
 
         if not self.postings:
             raise ValueError(
@@ -178,20 +201,6 @@ class IndexData(BaseModel):
                 raise ValueError(
                     "Every passage must reference a file listed "
                     "in index metadata."
-                )
-
-            start = passage.first_character_index
-            end = passage.last_character_index
-
-            if start < 0 or end <= start:
-                raise ValueError(
-                    "Passage ranges must satisfy 0 <= start < end."
-                )
-
-            if len(passage.text) != end - start:
-                raise ValueError(
-                    "Passage text length must equal last_character_index "
-                    "minus first_character_index."
                 )
 
             if len(passage.text) > self.settings.max_chunk_size:
