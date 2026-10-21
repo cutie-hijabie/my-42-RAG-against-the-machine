@@ -1,6 +1,7 @@
 import os
-from pathlib import Path
+from tqdm import tqdm
 from typing import List
+from pathlib import Path
 from src.models import SourceFile
 from src.validation import require_directory, require_file
 
@@ -49,6 +50,10 @@ def load_sample_corpus(
     return result
 
 
+def raise_walk_error(error: OSError) -> None:
+    raise error
+
+
 def discover_source_files(corpus_path: str) -> List[str]:
 
     project_root = Path(__file__).resolve().parent.parent
@@ -71,11 +76,70 @@ def discover_source_files(corpus_path: str) -> List[str]:
 
     require_directory(str(corpus_path_obj))
 
-    file_paths=[]
+    file_paths = []
 
-    for root, dirs, files in os.walk(corpus_path_obj, topdown=True, followlinks=False):
-        if file.is_symlink():
-            continue
-        if not 
+    for root, dirs, files in os.walk(
+        corpus_path_obj,
+        topdown=True,
+        followlinks=False,
+        onerror=raise_walk_error,
+    ):
+        dirs_we_want = []
+
+        for directory in dirs:
+            dir_path = Path(root) / directory
+
+            if dir_path.is_symlink():
+                continue
+
+            if str(directory).startswith("."):
+                continue
+
+            dirs_we_want.append(directory)
+
+        dirs[:] = dirs_we_want
+
+        for filename in files:
+            file_path = Path(root) / filename
+
+            if file_path.is_symlink():
+                continue
+
+            if not str(file_path).endswith((".py", ".md", ".txt", ".rst")):
+                continue
+
+            if not file_path.is_file():
+                continue
+
+            file_path = file_path.resolve()
+
+            if not file_path.is_relative_to(project_root):
+                raise ValueError(
+                    "Source file must be inside the project root."
+                )
+
+            relative_path = file_path.relative_to(project_root).as_posix()
+
+            file_paths.append(relative_path)
+
+    return sorted(file_paths)
 
 
+def load_corpus(
+    corpus_path: str = "data/raw/vllm-0.10.1",
+) -> List[SourceFile]:
+
+    source_files = discover_source_files(corpus_path)
+
+    if not source_files:
+        raise ValueError(
+            "No supported source files were found in the corpus directory."
+        )
+
+    source_file_records = []
+
+    for source_file in tqdm(source_files, desc="Loading corpus", unit="file"):
+        source_file = read_source_file(source_file)
+        source_file_records.append(source_file)
+
+    return source_file_records
