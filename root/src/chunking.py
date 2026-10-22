@@ -70,3 +70,80 @@ class Chunker:
                 file, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
             ):
                 start_line = file.lineno
+                if file.decorator_list:
+                    start_line = min(
+                        decorator.lineno for decorator in file.decorator_list
+                    )
+
+                boundaries.add(start_postitions[start_line - 1])
+
+        sorted_boundaries = sorted(boundaries)
+
+        passages = []
+
+        for i, boundary in enumerate(sorted_boundaries[:-1]):
+            start = boundary
+            end = sorted_boundaries[i + 1]
+            section_length = end - start
+
+            if section_length <= self.settings.max_chunk_size:
+                passage = Passage(
+                    file_path=source.file_path,
+                    first_character_index=start,
+                    last_character_index=end,
+                    text=source.text[start:end],
+                )
+                passages.append(passage)
+            else:
+                passages.extend(self.split_span(source, start, end))
+
+        return passages
+
+    def chunk_text(self, source: SourceFile) -> List[Passage]:
+        if not source.text:
+            return []
+
+        boundaries = {0, len(source.text)}
+
+        fence_character = None
+        fence_length = 0
+        start_postitions = []
+        pos = 0
+        lines = source.text.splitlines(keepends=True)
+
+        for line in lines:
+            start_postitions.append(pos)
+            pos += len(line)
+
+            stripped = line.lstrip()
+
+            if fence_character is None:
+                if stripped.startswith(("```", "~~~")):
+                    fence_character = stripped[0]
+                    fence_length = len(stripped) - len(
+                        stripped.lstrip(fence_character)
+                    )
+                else:
+                    closing_length = len(stripped) - len(
+                        stripped.lstrip(fence_character)
+                    )
+                    if (
+                        closing_length >= fence_length
+                        and not stripped[closing_length:].strip()
+                    ):
+                        fence_character = None
+                        fence_length = 0
+
+            heading_length = len(stripped) - len(stripped.lstrip("#"))
+
+            if 1 <= heading_length <= 6 and (
+                heading_length == len(stripped)
+                or stripped[heading_length].isspace()
+            ):
+                boundaries.add(pos)
+
+            if not line.strip():
+                boundaries.add(pos + len(line))
+
+            if stripped.startswith("=") and source.file_path.endswith(".rst"):
+
