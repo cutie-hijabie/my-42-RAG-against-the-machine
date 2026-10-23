@@ -4,6 +4,7 @@ from pathlib import Path
 from collections import Counter
 from src.tokenization import tokenize
 from typing import Optional, List
+from src.corpus import CorpusLoader
 from src.models import (
     IndexSettings,
     Passage,
@@ -95,4 +96,30 @@ class Indexer:
 
         return str(final_path)
 
-    def 
+    def load_index(self) -> IndexData:
+        index_path_obj = Path(self.index_path)
+        index_path_obj = index_path_obj / "index.json"
+
+        with open(index_path_obj, encoding="utf-8") as index_file:
+            index_json = index_file.read()
+        index = IndexData.model_validate_json(index_json)
+
+        corpus = CorpusLoader(index.corpus_path)
+        corpus_data = corpus.snapshot_files()
+
+        saved_files = {}
+
+        for file in index.files:
+            saved_files[file.file_path] = file
+
+        current_files = {}
+
+        for file in corpus_data:
+            current_files[file.file_path] = file
+
+        if saved_files != current_files:
+            raise ValueError("Corpus files have changed. Rebuild the index.")
+
+        self.settings = index.settings
+
+        return index
