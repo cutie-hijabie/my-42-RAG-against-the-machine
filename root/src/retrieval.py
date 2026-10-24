@@ -1,4 +1,5 @@
-from typing import List
+from math import log
+from typing import Dict, List
 from src.tokenization import tokenize
 from src.models import IndexData, MinimalSource
 from src.validation import validate_k, validate_query
@@ -55,4 +56,29 @@ class Retriever:
 
         return final_candidates
 
-    def score_candidates
+    def score_candidates(self, query_terms: List[str]) -> Dict[int, float]:
+        scores = {}
+        n = len(self.index.passages)
+        avgdl = self.index.average_document_length
+        k1 = self.index.settings.k1
+        b = self.index.settings.b
+
+        for term in dict.fromkeys(query_terms):
+            postings = self.index.postings.get(term, [])
+            if not postings:
+                continue
+            df = len(postings)
+            idf = log(1 + (n - df + 0.5) / (df + 0.5))
+
+            for post in postings:
+                chunk_id = post.chunk_id
+                tf = post.term_frequency
+                dl = self.index.document_lengths[chunk_id]
+
+                contribution = (
+                    idf * tf * (k1 + 1) / (tf + k1 * (1 - b + b * dl / avgdl))
+                )
+
+                scores[chunk_id] = scores.get(chunk_id, 0.0) + contribution
+
+        return scores
