@@ -25,6 +25,8 @@ def validate_k(k: int) -> int:
 
 
 def validate_query(query: str) -> str:
+    if not isinstance(query, str):
+        raise ValueError("Query must be a string.")
     if not query.strip():
         raise ValueError("Query must not be empty or whitespace-only.")
 
