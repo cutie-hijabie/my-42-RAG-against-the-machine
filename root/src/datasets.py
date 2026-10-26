@@ -90,6 +90,10 @@ def save_results(
         validated_results = StudentSearchResultsAndAnswer.model_validate(
             results.model_dump()
         )
+    else:
+        raise TypeError(
+            "results must be StudentSearchResults or StudentSearchResultsAndAnswer."
+        )
 
     results_json = validated_results.model_dump_json(indent=2)
 
