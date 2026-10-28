@@ -3,6 +3,7 @@ from src.models import (
     RagDataset,
     StudentSearchResults,
     EvaluationReport,
+    AnsweredQuestion,
 )
 from src.validation import validate_k
 from math import isfinite
@@ -51,3 +52,38 @@ class Evaluator:
             raise ValueError(
                 "Evaluation k must not exceed the saved search results' k."
             )
+
+        reference_questions = {}
+
+        for question in reference.rag_questions:
+            if question.question_id in reference_questions:
+                raise ValueError(
+                    f"Duplicate reference question ID: {question.question_id}"
+                )
+            if not isinstance(question, AnsweredQuestion):
+                raise TypeError(
+                    f"Reference question must be annotated: {question.question_id}"
+                )
+
+            reference_questions[question.question_id] = question
+
+        for result in student.search_results:
+            reference_question = reference_questions[result.question_id]
+
+            if result.question != reference_question.question:
+                raise ValueError(
+                    f"Question text mismatch for ID: {result.question_id}"
+                )
+
+        question_scores = []
+        missing_question_ids = []
+        skipped_question_ids = []
+
+        for question in reference.rag_questions:
+            result = student_results.get(question.question_id)
+
+            if result is None:
+                missing_question_ids.append(question.question_id)
+                predictions = []
+            else:
+                predictions = result.retrieved_sources[:k]
