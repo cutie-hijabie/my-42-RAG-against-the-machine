@@ -256,22 +256,7 @@ class Cli:
             )
 
             return saved_path
-            record = MinimalAnswer(
-                question_id=unanswered_questions.question_id,
-                question=unanswered_questions.question,
-                retrieved_sources=result,
-                answer=answer,
-            )
-            results = StudentSearchResultsAndAnswer(
-                search_results=[record],
-                k=k,
-            )
-            saved_path = save_results(
-                results,
-                save_directory=save_directory,
-                filename="query.json",
-            )
-            return saved_path
+
         except (ValueError, OSError, UnicodeError) as error:
             self.fail(error)
 
