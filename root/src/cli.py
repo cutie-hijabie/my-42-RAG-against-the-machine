@@ -95,6 +95,7 @@ class Cli:
         k: int = 5,
         index_path: str = "data/processed",
         save_directory: str = "data/output/search_results/single",
+        show_text: bool = False,
     ) -> str:
         try:
             question = UnansweredQuestion(question=query)
@@ -103,6 +104,19 @@ class Cli:
 
             retriever = Retriever(index)
             sources = retriever.search(question.question, k)
+            if show_text:
+                passages = reconstruct_passages(
+                    sources, CorpusLoader(index.corpus_path)
+                )
+
+                for number, passage in enumerate(passages, start=1):
+                    print(
+                        f"\n--- Result {number}: {passage.file_path} "
+                        f"[{passage.first_character_index}:"
+                        f"{passage.last_character_index}] ---",
+                        file=sys.stderr,
+                    )
+                    print(passage.text, file=sys.stderr)
             result = MinimalSearchResults(
                 question_id=question.question_id,
                 question=question.question,

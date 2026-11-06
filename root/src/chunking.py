@@ -133,7 +133,9 @@ class Chunker:
                     ):
                         boundaries.add(pos)
 
-                    if not line.strip():
+                    if not line.strip() and not source.file_path.endswith(
+                        ".md"
+                    ):
                         boundaries.add(pos + len(line))
 
                     underline = line.strip()
