@@ -248,7 +248,14 @@ class Cli:
                 context = prepare_context(
                     unanswered_questions.question, passages, generator
                 )
+                generation_start = perf_counter()
                 answer = generator.generate_answer(context)
+                generation_elapsed = perf_counter() - generation_start
+
+                print(
+                    f"\nAnswer ({generation_elapsed:.2f} seconds)\n{answer}\n",
+                    flush=True,
+                )
 
             except RuntimeError as error:
                 self.fail(error)

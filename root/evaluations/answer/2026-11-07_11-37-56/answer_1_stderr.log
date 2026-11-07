@@ -1,0 +1,5 @@
+Loading weights:   0%|          | 0/311 [00:00<?, ?it/s]Loading weights:  63%|██████▎   | 195/311 [00:00<00:00, 1930.45it/s]Loading weights: 100%|██████████| 311/311 [00:00<00:00, 1920.46it/s]
+
+Answer (13.51 seconds)
+To enable expert parallelism in vLLM for MoE models, set `enable_expert_parallel=True` in the configuration. This will use expert parallelism instead of tensor parallelism for MoE layers, and it will use the same degree of parallelism as what you have set for tensor parallelism.
+

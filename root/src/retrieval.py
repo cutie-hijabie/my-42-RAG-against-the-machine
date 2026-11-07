@@ -1,6 +1,7 @@
 from math import log
 from typing import Dict, List
 from src.tokenization import tokenize
+from pathlib import PurePosixPath
 from src.models import IndexData, MinimalSource
 from src.validation import validate_k, validate_query
 
@@ -18,6 +19,24 @@ class Retriever:
 
         tokens = tokenize(query)
         scored_candidates = self.score_candidates(tokens)
+        query_terms = set(tokens)
+        path_bonuses: Dict[str, int] = {}
+        corpus_path = PurePosixPath(self.index.corpus_path)
+
+        for chunk_id, score in scored_candidates.items():
+            file_path = self.index.passages[chunk_id].file_path
+            if not file_path.endswith(".md"):
+                continue
+
+            if file_path not in path_bonuses:
+                path = PurePosixPath(file_path)
+                if path.is_relative_to(corpus_path):
+                    path = path.relative_to(corpus_path)
+
+                path_terms = set(tokenize(path.with_suffix("").as_posix()))
+                path_bonuses[file_path] = 4 * len(query_terms & path_terms)
+
+            scored_candidates[chunk_id] = score + path_bonuses[file_path]
         filtered_candidates = {
             chunk_id: score
             for chunk_id, score in scored_candidates.items()
