@@ -1,5 +1,0 @@
-
-Answer (9.52 seconds)
-The parameter that must be specified when running a model with a quantized KV cache in vLLM is `kv_cache_dtype`.
-
-data/output/search_results_and_answer/single/query.json

@@ -25,6 +25,14 @@ from src.validation import validate_k
 
 
 class Cli:
+    """Expose the RAG pipeline as commands through Python Fire.
+
+    Coordinate the components that build an index, retrieve sources,
+    generate answers, and evaluate retrieval results. Each command
+    prepares its inputs, delegates work to the relevant components, and
+    handles expected errors at the command-line boundary.
+    """
+
     def index(
         self,
         max_chunk_size: int = 2000,
@@ -34,6 +42,30 @@ class Cli:
         k1: float = 1.5,
         b: float = 0.75,
     ) -> str:
+        """Build and save a searchable index for the source corpus.
+
+        Load the corpus, split its files into passages, and build an index
+        containing term postings and passage lengths for BM25 retrieval.
+        Compare corpus snapshots before loading, after chunking, and
+        after index construction to detect changes before saving. Report
+        the total indexing time to standard error.
+
+        Args:
+            max_chunk_size: Maximum passage length in characters.
+            corpus_path: Directory containing the source files.
+            index_path: Directory where ``index.json`` will be saved.
+            overlap: Requested overlap in characters when splitting a
+                section into multiple passages.
+            k1: BM25 parameter that controls term-frequency saturation.
+            b: BM25 parameter that controls passage-length normalization.
+
+        Returns:
+            The path to the saved ``index.json`` file.
+
+        Raises:
+            SystemExit: If the settings or corpus are invalid, the corpus
+                changes during indexing, or an expected file error occurs.
+        """
 
         start_time = perf_counter()
         try:
@@ -86,6 +118,17 @@ class Cli:
             self.fail(error)
 
     def fail(self, error: Exception) -> NoReturn:
+        """Report a command failure and exit with status code 2.
+
+        Write the error message to standard error with an ``Error:``
+        prefix.
+
+        Args:
+            error: Exception whose message should be displayed.
+
+        Raises:
+            SystemExit: Always raised with exit status 2.
+        """
         print(f"Error: {error}", file=sys.stderr)
         raise SystemExit(2)
 
@@ -95,8 +138,28 @@ class Cli:
         k: int = 5,
         index_path: str = "data/processed",
         save_directory: str = "data/output/search_results/single",
-        show_text: bool = False,
     ) -> str:
+        """Retrieve and display ranked passages for a single query.
+
+        Create a question record and load the saved index. Use the
+        retriever to find up to ``k`` source locations, then read the
+        corresponding passage text from the corpus and print it to
+        standard error. Save the question, its ID, the ranked source
+        locations, and the requested ``k`` in ``query.json``.
+
+        Args:
+            query: Question text to search for.
+            k: Maximum number of source locations to retrieve.
+            index_path: Directory containing the saved ``index.json``.
+            save_directory: Directory where ``query.json`` is written.
+
+        Returns:
+            The path to the saved ``query.json`` file.
+
+        Raises:
+            SystemExit: With status code 2 if validation fails or
+                an expected file or decoding error occurs.
+        """
         try:
             question = UnansweredQuestion(question=query)
             indexer = Indexer(index_path=index_path)
@@ -104,19 +167,18 @@ class Cli:
 
             retriever = Retriever(index)
             sources = retriever.search(question.question, k)
-            if show_text:
-                passages = reconstruct_passages(
-                    sources, CorpusLoader(index.corpus_path)
-                )
+            passages = reconstruct_passages(
+                sources, CorpusLoader(index.corpus_path)
+            )
 
-                for number, passage in enumerate(passages, start=1):
-                    print(
-                        f"\n--- Result {number}: {passage.file_path} "
-                        f"[{passage.first_character_index}:"
-                        f"{passage.last_character_index}] ---",
-                        file=sys.stderr,
-                    )
-                    print(passage.text, file=sys.stderr)
+            for number, passage in enumerate(passages, start=1):
+                print(
+                    f"\n--- Result {number}: {passage.file_path} "
+                    f"[{passage.first_character_index}:"
+                    f"{passage.last_character_index}] ---",
+                    file=sys.stderr,
+                )
+                print(passage.text, file=sys.stderr)
             result = MinimalSearchResults(
                 question_id=question.question_id,
                 question=question.question,
@@ -146,6 +208,29 @@ class Cli:
         save_directory: str = "data/output/search_results/UnansweredQuestions",
         index_path: str = "data/processed",
     ) -> str:
+        """Retrieve ranked source locations for every dataset question.
+
+        Validate the retrieval limit and load the question dataset.
+        Reuse one loaded index and retriever for all questions while
+        displaying a progress bar. Preserve question IDs and input
+        order in the saved results.
+
+        Save the results under the dataset's original filename and
+        report the total elapsed time to standard error.
+
+        Args:
+            dataset_path: Path to the JSON question dataset.
+            k: Maximum number of source locations per question.
+            save_directory: Directory where the results are written.
+            index_path: Directory containing the saved ``index.json``.
+
+        Returns:
+            The path to the saved retrieval results file.
+
+        Raises:
+            SystemExit: With status code 2 if validation fails or
+                an expected file or decoding error occurs.
+        """
 
         start_time = perf_counter()
         try:
@@ -192,6 +277,28 @@ class Cli:
         dataset_path: str,
         k: int | None = None,
     ) -> str:
+        """Evaluate saved retrieval results against reference sources.
+
+        Load the student search results and an annotated question
+        dataset. Evaluate the top ``k`` results for each question
+        using a source overlap threshold of 0.05. Return the report
+        as indented JSON for the CLI to display.
+
+        Args:
+            student_search_results_path: Path to the JSON file
+                containing saved retrieval results.
+            dataset_path: Path to the annotated reference dataset.
+            k: Number of ranked results to consider per question.
+                If omitted, use the limit stored in the results.
+
+        Returns:
+            A JSON string containing the evaluation report.
+
+        Raises:
+            SystemExit: With status code 2 if input validation or
+                evaluation fails, a reference question is unannotated,
+                or an expected file or decoding error occurs.
+        """
         try:
             search_results = load_search_results(student_search_results_path)
             datasets = load_dataset(dataset_path)
@@ -209,7 +316,7 @@ class Cli:
                     self.fail(error)
                 raise
 
-            json_report = eval_report.model_dump_json(indent=2)
+            json_report: str = eval_report.model_dump_json(indent=2)
 
             return json_report
         except (ValueError, OSError, UnicodeError) as error:
@@ -226,6 +333,34 @@ class Cli:
         context_limit: int = 4096,
         max_new_tokens: int = 512,
     ) -> str:
+        """Retrieve evidence and generate an answer for one question.
+
+        Load the saved index and retrieve up to ``k`` source
+        locations. Reconstruct the passage text and prepare a prompt
+        within the model's token budget. Print the generated answer
+        and its generation time, then save the question, answer,
+        and retrieved source locations in ``query.json``.
+
+        Args:
+            query: Question to answer.
+            k: Maximum number of source locations to retrieve.
+            index_path: Directory containing the saved index.
+            save_directory: Directory where ``query.json`` is written.
+            model_name: Name or path of the generation model.
+            device: Device selection, either ``auto``, ``cpu``,
+                or ``cuda``.
+            context_limit: Total token budget for input and output.
+            max_new_tokens: Maximum number of tokens to generate,
+                reserved from the total context budget.
+
+        Returns:
+            The path to the saved answer file.
+
+        Raises:
+            SystemExit: With status code 2 if validation fails or
+                an expected file, decoding, or generation error
+                occurs.
+        """
 
         try:
             unanswered_questions = UnansweredQuestion(question=query)
@@ -292,6 +427,38 @@ class Cli:
         context_limit: int = 4096,
         max_new_tokens: int = 512,
     ) -> str:
+        """Generate answers using the sources in saved search results.
+
+        Load the saved retrieval results and reuse one corpus loader
+        and generator across all questions. Reconstruct the retrieved
+        passages for each question and prepare its prompt within the
+        model's token budget.
+
+        Preserve question IDs, input order, retrieved source
+        locations, and the saved retrieval limit. Save the answers
+        under the input filename and report the total elapsed time
+        to standard error. An empty input produces an empty results
+        file without initializing the generator.
+
+        Args:
+            student_search_results_path: Path to the JSON file
+                containing saved retrieval results.
+            save_directory: Directory where the answers are written.
+            model_name: Name or path of the generation model.
+            device: Device selection, either ``auto``, ``cpu``,
+                or ``cuda``.
+            context_limit: Total token budget for input and output.
+            max_new_tokens: Maximum number of tokens to generate
+                per answer, reserved from the total context budget.
+
+        Returns:
+            The path to the saved dataset answers file.
+
+        Raises:
+            SystemExit: With status code 2 if validation fails or
+                an expected file, decoding, or generation error
+                occurs.
+        """
 
         start_time = perf_counter()
         try:

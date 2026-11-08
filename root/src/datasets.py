@@ -11,13 +11,32 @@ from pathlib import Path
 
 
 def load_dataset(dataset_path: str) -> RagDataset:
+    """Read and validate a JSON question dataset.
+
+    Decode the file as UTF-8 and validate its contents as a
+    ``RagDataset``. Accept annotated and unannotated questions,
+    preserve their input order, and require unique question IDs.
+
+    Args:
+        dataset_path: Path to the JSON question dataset.
+
+    Returns:
+        The validated question dataset.
+
+    Raises:
+        FileNotFoundError: If the input file does not exist.
+        OSError: If the input file cannot be opened or read.
+        UnicodeDecodeError: If the input file is not valid UTF-8.
+        ValueError: If the path is not a regular file, the JSON or
+            dataset structure is invalid, or question IDs repeat.
+    """
 
     dataset_path = require_file(dataset_path)
 
     with open(dataset_path, "r", encoding="utf-8") as dataset_file:
         dataset = dataset_file.read()
         try:
-            dataset = RagDataset.model_validate_json(dataset)
+            datasets: RagDataset = RagDataset.model_validate_json(dataset)
         except ValidationError as error:
             raise ValueError(
                 f"Invalid JSON or dataset structure in {dataset_path}: {error}"
@@ -25,27 +44,48 @@ def load_dataset(dataset_path: str) -> RagDataset:
 
     question_ids = set()
 
-    for data in dataset.rag_questions:
+    for data in datasets.rag_questions:
         if data.question_id in question_ids:
             raise ValueError(f"Duplicate question ID: {data.question_id}")
 
         question_ids.add(data.question_id)
 
-    return dataset
+    return datasets
 
 
 def load_search_results(
     student_search_results_path: str,
 ) -> StudentSearchResults:
+    """Read and validate saved retrieval results.
+
+    Decode the file as UTF-8 and validate its contents as
+    ``StudentSearchResults``. Require unique question IDs and
+    preserve the stored question order, ranked source locations,
+    and retrieval limit.
+
+    Args:
+        student_search_results_path: Path to the JSON file containing
+            saved retrieval results.
+
+    Returns:
+        The validated retrieval results.
+
+    Raises:
+        FileNotFoundError: If the input file does not exist.
+        OSError: If the input file cannot be opened or read.
+        UnicodeDecodeError: If the input file is not valid UTF-8.
+        ValueError: If the path is not a regular file, the JSON or
+            results structure is invalid, or question IDs repeat.
+    """
     student_search_results_path = require_file(student_search_results_path)
 
     with open(
         student_search_results_path, "r", encoding="utf-8"
     ) as student_search_results_file:
-        student_search_results = student_search_results_file.read()
+        student_search_result = student_search_results_file.read()
         try:
-            student_search_results = StudentSearchResults.model_validate_json(
-                student_search_results
+            student_search_results: StudentSearchResults = (
+                StudentSearchResults.model_validate_json(student_search_result)
             )
         except ValidationError as error:
             raise ValueError(
@@ -69,6 +109,30 @@ def save_results(
     save_directory: str,
     filename: str,
 ) -> str:
+    """Validate and save retrieval results or answers as JSON.
+
+    Create the destination directory as needed and revalidate the
+    results before serialization. Write indented JSON to a temporary
+    file in the destination directory, then atomically replace the
+    final file once the write is complete. Attempt to remove any
+    temporary file left after the operation.
+
+    Args:
+        results: Retrieval results or retrieval results with answers.
+        save_directory: Directory where the JSON file is written.
+        filename: File basename ending in ``.json`` or ``.JSON``,
+            without directory components.
+
+    Returns:
+        The path to the saved JSON file.
+
+    Raises:
+        ValueError: If the filename is invalid.
+        TypeError: If the results are not a supported model type.
+        ValidationError: If the results fail model revalidation.
+        OSError: If the destination directory cannot be created or
+            the output file cannot be written or replaced.
+    """
     if (
         not filename.endswith((".json", ".JSON"))
         or "/" in filename
@@ -92,7 +156,8 @@ def save_results(
         )
     else:
         raise TypeError(
-            "results must be StudentSearchResults or StudentSearchResultsAndAnswer."
+            "results must be StudentSearchResults or "
+            "StudentSearchResultsAndAnswer."
         )
 
     results_json = validated_results.model_dump_json(indent=2)

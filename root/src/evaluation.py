@@ -1,3 +1,5 @@
+from typing import List
+
 from src.models import (
     MinimalSource,
     RagDataset,
@@ -11,9 +13,35 @@ from math import isfinite
 
 
 class Evaluator:
+    """Measure how many reference sources retrieval finds.
+
+    Compare the top-ranked source locations with annotated source
+    ranges. Count a reference source as found when a result from
+    the same file meets the configured overlap threshold.
+
+    Attributes:
+        k: Number of ranked results to consider per question.
+            A value of ``None`` uses the limit in the saved results.
+        iou_threshold: Minimum intersection over union required
+            for a source match.
+    """
+
     def __init__(
         self, k: int | None = None, iou_threshold: float = 0.05
     ) -> None:
+        """Initialize the retrieval evaluator.
+
+        Args:
+            k: Optional number of ranked results to evaluate per
+                question. Zero evaluates an empty set of results.
+            iou_threshold: Minimum intersection over union for a
+                source match. Defaults to 0.05.
+
+        Raises:
+            ValueError: If ``k`` is not a nonnegative integer or
+                the threshold is not a finite number in (0, 1].
+                Boolean values are invalid for both arguments.
+        """
         if k is not None:
             k = validate_k(k)
 
@@ -32,6 +60,20 @@ class Evaluator:
         self.iou_threshold = iou_threshold
 
     def source_iou(self, a: MinimalSource, b: MinimalSource) -> float:
+        """Calculate the intersection over union of two source ranges.
+
+        For ranges in the same file, divide the number of characters
+        in their intersection by the number in their union. Treat
+        both ranges as half-open character intervals.
+
+        Args:
+            a: First source location to compare.
+            b: Second source location to compare.
+
+        Returns:
+            An overlap score from 0.0 to 1.0. Return 0.0 for
+            different files or ranges with no shared characters.
+        """
         if a.file_path != b.file_path:
             return 0.0
         overlap_start = max(a.first_character_index, b.first_character_index)
@@ -47,6 +89,31 @@ class Evaluator:
     def evaluate_results(
         self, student: StudentSearchResults, reference: RagDataset
     ) -> EvaluationReport:
+        """Calculate per-question and mean retrieval recall.
+
+        Match student results to annotated references by question
+        ID and verify that the corresponding question texts agree.
+        Use the configured cutoff or the limit stored in the results.
+
+        Deduplicate reference source locations. Count each reference
+        source once if any of the top-ranked results meets the overlap
+        threshold. Assign zero recall to evaluable questions with
+        missing results and skip questions with no reference sources.
+
+        Args:
+            student: Saved student retrieval results and their limit.
+            reference: Dataset containing annotated reference questions.
+
+        Returns:
+            An evaluation report containing the cutoff, per-question
+            recall, mean recall, and missing and skipped question IDs.
+
+        Raises:
+            TypeError: If a reference question is unannotated.
+            ValueError: If the cutoff exceeds the saved limit, question
+                IDs are duplicated or unknown, matching question texts
+                differ, or no question can be evaluated.
+        """
 
         k = self.k if self.k is not None else student.k
 
@@ -64,7 +131,8 @@ class Evaluator:
                 )
             if not isinstance(question, AnsweredQuestion):
                 raise TypeError(
-                    f"Reference question must be annotated: {question.question_id}"
+                    "Reference question must be "
+                    f"annotated: {question.question_id}"
                 )
 
             reference_questions[question.question_id] = question
@@ -92,17 +160,17 @@ class Evaluator:
             student_results[result.question_id] = result
 
         question_scores = []
-        missing_question_ids = []
+        missing_question_ids: List = []
         skipped_question_ids = []
 
         for question in reference_questions.values():
-            result = student_results.get(question.question_id)
+            student_result = student_results.get(question.question_id)
 
-            if result is None:
+            if student_result is None:
                 missing_question_ids.append(question.question_id)
                 predictions = []
             else:
-                predictions = result.retrieved_sources[:k]
+                predictions = student_result.retrieved_sources[:k]
 
             expected_sources = []
             seen_locations = set()
@@ -146,7 +214,8 @@ class Evaluator:
 
         if not question_scores:
             raise ValueError(
-                "Evaluation requires at least one question with reference sources."
+                "Evaluation requires at least one "
+                "question with reference sources."
             )
 
         mean_recall = sum(score.recall for score in question_scores) / len(

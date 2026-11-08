@@ -54,3 +54,7 @@ pytorch_model*.bin
 .DS_Store
 ._*
 Thumbs.db
+
+/exams/
+/evaluations/
+/moulinette_pkg/

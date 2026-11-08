@@ -7,10 +7,54 @@ from src.validation import validate_k, validate_query
 
 
 class Retriever:
+    """Rank indexed passages and return their source locations.
+
+    Use BM25 to score passages containing query terms. For Markdown
+    candidates, add a bonus when query tokens also appear in the file
+    path. Return the highest-ranked distinct source locations.
+
+    Attributes:
+        index: Loaded index containing the passages, token postings,
+            passage lengths, and BM25 settings.
+    """
+
     def __init__(self, index: IndexData) -> None:
+        """Initialize the retriever with a loaded index.
+
+        Args:
+            index: Validated index to reuse across searches.
+        """
         self.index = index
 
     def search(self, query: str, k: int = 5) -> List[MinimalSource]:
+        """Find up to ``k`` ranked source locations for a query.
+
+        Validate the query and retrieval limit, tokenize the query,
+        and score matching passages with BM25. For each Markdown
+        candidate, add four points per distinct query token shared
+        with the file path. Tokenize the path without its extension
+        and remove the corpus prefix when present. Reuse the bonus
+        for candidates from the same file.
+
+        Keep candidates with positive scores and sort by descending
+        score, breaking ties by ascending chunk ID. Treat identical
+        file paths and character ranges as one source location.
+
+        Args:
+            query: Nonempty search query containing at least one
+                non-whitespace character.
+            k: Maximum number of distinct source locations to return.
+                Defaults to 5. A value of zero returns an empty list
+                after input validation.
+
+        Returns:
+            Ranked source locations containing file paths and character
+            offsets. The list is empty if no candidates match.
+
+        Raises:
+            ValueError: If the query is invalid or ``k`` is negative,
+                a boolean, or another non-integer value.
+        """
         query = validate_query(query)
         k = validate_k(k)
 
@@ -76,7 +120,24 @@ class Retriever:
         return final_candidates
 
     def score_candidates(self, query_terms: List[str]) -> Dict[int, float]:
-        scores = {}
+        """Calculate base BM25 scores for matching passages.
+
+        Look up each distinct query token in the inverted index.
+        Calculate its inverse document frequency from the number of
+        passages containing it, then score each matching passage using
+        the token's frequency and the passage's length relative to
+        the average. Sum the contributions for each chunk ID.
+
+        Args:
+            query_terms: Tokens produced by the query tokenizer.
+                Repeated query tokens contribute once each.
+
+        Returns:
+            A mapping from matching chunk IDs to their BM25 scores.
+            The mapping is empty if none of the query terms appear
+            in the index.
+        """
+        scores: Dict = {}
         n = len(self.index.passages)
         avgdl = self.index.average_document_length
         k1 = self.index.settings.k1

@@ -4,6 +4,21 @@ from src.models import PreparedContext
 
 
 class Generator:
+    """Generate answer text from evidence prepared for a question.
+
+    Load a pretrained tokenizer and causal language model once per
+    instance. Reuse them to tokenize prepared prompts, check token
+    budgets, and decode the model's generated answer text.
+
+    Attributes:
+        model_name: Pretrained model name or local model path.
+        device: Selected device, either ``cpu`` or ``cuda``.
+        context_limit: Total token budget for input and output.
+        max_new_tokens: Maximum number of tokens to generate per answer.
+        tokenizer: Pretrained tokenizer used for prompts and output.
+        model: Pretrained causal language model used for inference.
+    """
+
     def __init__(
         self,
         model_name: str = "Qwen/Qwen3-0.6B",
@@ -11,6 +26,31 @@ class Generator:
         context_limit: int = 4096,
         max_new_tokens: int = 512,
     ) -> None:
+        """Validate generation settings and load the model and tokenizer.
+
+        Select CUDA when available if the device is ``auto``.
+        Otherwise, use the CPU. Load the model in 32-bit floating-point
+        precision, move it to the selected device, and set it to
+        evaluation mode. Check the context budget against the model's
+        configured maximum number of positions.
+
+        Args:
+            model_name: Pretrained model name or local model path.
+                Defaults to ``Qwen/Qwen3-0.6B``.
+            device: Device selection, either ``auto``, ``cpu``,
+                or ``cuda``.
+            context_limit: Positive token budget for the prompt and
+                generated answer combined.
+            max_new_tokens: Positive number of tokens to reserve for
+                generation. Must be smaller than ``context_limit``.
+
+        Raises:
+            ValueError: If a token limit or device selection is
+                invalid, explicitly requested CUDA is unavailable, or
+                the context budget exceeds the model's supported limit.
+            RuntimeError: If the tokenizer or model cannot be loaded,
+                or the model cannot be set up on the selected device.
+        """
         if (
             not isinstance(context_limit, int)
             or context_limit < 1
@@ -79,6 +119,31 @@ class Generator:
             )
 
     def generate_answer(self, prepared: PreparedContext) -> str:
+        """Generate and decode an answer from a prepared context.
+
+        Return an insufficient-evidence message when the context has
+        no evidence. Otherwise, tokenize the prompt and verify that
+        its length matches the recorded count and leaves enough room
+        for the reserved output tokens.
+
+        Run generation in inference mode with sampling disabled.
+        Decode only the newly generated tokens, skip special tokens,
+        and strip surrounding whitespace.
+
+        Args:
+            prepared: Formatted prompt, recorded input token count,
+                and evidence metadata.
+
+        Returns:
+            The generated answer text or the insufficient-evidence
+            message when no evidence was included.
+
+        Raises:
+            ValueError: If the actual prompt token count differs
+                from the recorded count or exceeds the input budget.
+            RuntimeError: If tokenization, generation, or decoding
+                fails, or the decoded answer is empty.
+        """
 
         if not prepared.has_evidence:
             return (
@@ -138,4 +203,4 @@ class Generator:
         if not readable_output:
             raise RuntimeError("The model generated an empty answer.")
 
-        return readable_output
+        return str(readable_output)
